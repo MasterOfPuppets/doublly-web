@@ -1,0 +1,597 @@
+========================================
+BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
+========================================
+
+--- BACKLOG ---
+
+[TREE-01] Collapsed node summary
+  Quando um ramo está colapsado, mostrar resumo inline:
+  contagem de filhos diretos + totalAmount colapsado.
+  Requer que a API devolva totais por sinal (deve/haver) no AccountTreeDto
+  para consistência com a app Android.
+  Dependência: alterar AccountTreeDto na API + Android.
+
+[TREE-02] Edit account (rename + budget)
+  Modal inline no AccountTreeNode para editar nome e referenceValue.
+
+[TREE-03] Delete account
+  Confirmação inline + chamada DELETE /accounts/{id} com refresh da tree.
+
+[TREE-04] Edit / delete movement inline
+  Cada linha de movimento na tree deve ter opções de editar e apagar.
+
+[TREE-05] Move account (drag or modal)
+  Mover um ramo para outro pai via modal de seleção ou drag-and-drop.
+
+[TREE-06] Drop movement onto another account's movement list area
+  Atualmente os movimentos podem ser arrastados entre accounts, mas o drop
+  é feito no header do account. Melhorar para permitir largar diretamente
+  na área de movimentos do account destino.
+  Requer: useDroppable em cada lista de movimentos, distinguir no handleDragEnd
+  se o drop foi numa lista vs. header, adicionar feedback visual (highlight).
+  Estimativa: ~1h. Não urgente.
+
+[MOV-02] Expense photo → movement (v2)
+  Tirar foto a um talão/fatura e criar o movimento automaticamente.
+  OCR + parsing do valor, data e descrição via IA (ex: Google Vision API,
+  AWS Textract ou modelo local no device).
+  Principalmente para a app Android (câmara nativa), mas pode ter versão
+  web via upload de imagem.
+  Requer: endpoint na API para receber imagem + integração com serviço OCR
+  + confirmação pelo utilizador antes de gravar.
+  Marcar como v2 — não bloqueia o lançamento.
+
+[UX-01] Sistema de mensagens de erro / notificações
+  Toast/snackbar global para feedback de operações (sucesso, erro, aviso).
+  Erros de condição de negócio (ex: limite de plano Free) devem mostrar
+  mensagem clara + botão "Upgrade plan" que leva o user à página de subscription.
+  Requer: componente de toast global, mapeamento dos códigos de erro da API
+  para mensagens amigáveis, e identificação dos erros de plano (ex: campo
+  "upgradeRequired: true" na resposta de erro da API).
+
+// TEMPORÁRIO: regra "Free plan não pode mover ramos entre projetos" está
+// comentada no AccountService.java (ver moveAccount) para permitir testes.
+// LEMBRAR DE DESCOMENTAR antes de ir para produção.
+
+
+  Cada conta pode ter os movimentos ordenados por data ou por índice manual.
+  Guardar no state do account: "ms=date" ou "ms=idx"
+    ms = movement sort (date | idx)
+  Se ms=idx: movements precisam de sort_order (nova migração V6).
+  Se ms=date: ordenar no backend por movementDate (já existe).
+  O frontend lê nodeState.movementSort e renderiza em conformidade.
+  Requer: backend parse/serialize "ms" + frontend react + Android.
+
+
+  Manter uma tabela de descrições usadas anteriormente pelo utilizador
+  (tabela movement_descriptions ou similar, por user_id).
+  Ao escrever no campo de descrição de um movimento, sugerir descrições
+  já usadas em tempo real (tipo typeahead/combobox).
+  Requer: nova tabela na API + endpoint de sugestões + componente frontend.
+  Deve ser implementado também na app Android.
+
+
+[MOV-04] Ordenação de movimentos por conta
+  Cada conta pode ter os movimentos ordenados de forma independente.
+  O modo de ordenação é guardado no state da conta (campo `ms` em nodeState).
+
+  MODOS:
+    date   — Ordenação por data do movimento (comportamento actual, default)
+    alpha  — Ordenação alfabética pela descrição
+    custom — Ordenação manual por índice (o utilizador arrasta para reordenar)
+
+  IMPLEMENTAÇÃO:
+    - Guardar no nodeState do account: `ms=date`, `ms=alpha` ou `ms=idx`
+    - Se ms=idx: movements precisam de campo `sort_order` (nova migração)
+    - Backend: ordenar no query (date/alpha) ou devolver por sort_order (custom)
+    - Frontend:
+        - Ícone de ordenação no header de cada AccountTreeNode
+        - Dropdown: "By date" / "Alphabetical" / "Custom"
+        - Se custom: drag handle nas MovementRow para reordenar
+    - Android: deve respeitar o mesmo campo ms do nodeState
+  Migração: sort_order em movements (apenas necessário para ms=idx)
+  Estimativa: ~3h (date/alpha) + ~1 dia adicional (custom/drag)
+
+[MOV-03] Estado do movimento com histórico de transições
+  Cada movimento pode ter um estado/classificador que evolui ao longo do tempo.
+  Casos de uso: gestão de pagamentos, despesas pendentes, execução de transferências.
+
+  ESTADOS DEFAULT (todos os planos):
+    created   — Criado (estado inicial automático)
+    executed  — Executado
+    paid      — Pago
+    cancelled — Cancelado
+
+  ESTADOS CUSTOM (plano Personal / Pro):
+    O utilizador pode criar os seus próprios estados com nome e cor personalizados.
+    Exemplo: "Por cobrar", "Em litígio", "Reembolsado", etc.
+
+  HISTÓRICO DE TRANSIÇÕES:
+    Cada mudança de estado gera um registo de histórico com timestamp.
+    Exemplo para uma despesa:
+      2026-04-27 10:00 — Criado
+      2026-04-28 09:30 — Executado
+      2026-04-30 14:00 — Pago
+    O histórico é visível numa secção expandível da MovementRow ou num modal de detalhe.
+
+  IMPLEMENTAÇÃO BACKEND:
+    - Nova tabela `movement_states` com: id, name, color, is_default, project_id (null se default), user_id
+    - Nova tabela `movement_status_history` com: id, movement_id, state_id, changed_at, changed_by
+    - Campo `current_state_id FK` em movements
+    - Endpoints:
+        GET  /movement-states                    — lista estados disponíveis (default + custom do user)
+        POST /movement-states                    — criar estado custom (plano Personal/Pro)
+        PUT  /movement-states/{id}               — editar estado custom
+        DELETE /movement-states/{id}             — apagar estado custom
+        POST /movements/{id}/state               — transição para novo estado (gera histórico)
+        GET  /movements/{id}/state-history       — histórico de transições
+    - Regra de plano: POST /movement-states retorna 403 com upgradeRequired=true se plano Free
+
+  IMPLEMENTAÇÃO FRONTEND:
+    - Badge de estado inline na MovementRow (cor + label), clicável para mudar
+    - Dropdown de seleção de estado ao clicar no badge
+    - Secção expandível de histórico por baixo da MovementRow (ou modal de detalhe)
+    - Página de gestão de estados custom (Settings / Project Settings)
+    - Plano Free: mostra os estados default + CTA de upgrade para criar custom
+
+  MIGRAÇÃO:
+    V7__Add_Movement_States.sql
+
+  Dependência: [UX-01] (toast para feedback de transições) deve vir antes.
+  Estimativa: ~1 semana (backend + frontend + Android).
+
+--- DÍVIDAS TÉCNICAS ---
+
+[TD-01] Strings hardcoded (en)
+  Textos dos modais e labels estão em inglês hardcoded.
+  Implementar i18n no frontend (react-i18next ou similar).
+
+[TD-02] Erro genérico nos modais
+  Os catch blocks mostram mensagens genéricas.
+  Mapear erros da API (ex: 403, 409) para mensagens úteis.
+
+[TD-03] accountStore não invalida fetchProjects após criar sub-account
+  fetchTree é chamado mas fetchProjects não — se houver totais no dashboard
+  podem ficar desatualizados. Rever quando o dashboard mostrar totais.
+
+[TD-04] Header do utilizador desaparece dentro de um projeto
+  Ao entrar na vista de projeto (árvore de contas), o header com a informação
+  do utilizador (nome, account settings, logout, etc.) deixa de estar visível.
+  Deve permanecer sempre presente em todas as vistas da aplicação.
+  Causa provável: o layout da página de projeto não inclui o componente de header
+  global, ou sobrepõe-no.
+  Correção: garantir que o header global é renderizado acima do ProjectView e não
+  é removido nem ocultado pelo router ou pelo layout da árvore.
+
+[TD-05] Falta fluxo de registo email/password
+  O frontend suporta login por email/password, mas não tem sign-up.
+  Resultado: utilizadores novos com email/password não conseguem entrar sem
+  pré-criação manual no Firebase Auth (console/admin script/import).
+  Correção: adicionar fluxo de criação de conta com
+  createUserWithEmailAndPassword(...) e, no sucesso, manter bootstrap para
+  sincronizar utilizador na BD da app.
+
+
+--- FUNCIONALIDADES IDENTIFICADAS NA CONCORRÊNCIA ---
+  (baseado em análise de YNAB, Firefly III, Actual Budget, Copilot Money, Toshl)
+
+[COMP-01] Movimentos recorrentes (recurring transactions)
+  Agendar um movimento para se repetir automaticamente com uma periodicidade.
+  Presente em: YNAB, Firefly III, Actual Budget, Toshl.
+  CASOS DE USO: renda mensal, salário, subscrições, seguros, prestações de crédito.
+
+  IMPLEMENTAÇÃO:
+    - Campo `recurrenceRule` em movements: null ou string RRULE simplificada
+      (ex: "FREQ=MONTHLY;DAY=1", "FREQ=WEEKLY;BYDAY=MO")
+    - Periodicidades suportadas: diária, semanal, quinzenal, mensal, anual
+    - Cron job backend que gera os movimentos concretos automaticamente
+    - UI: toggle "Repetir" no form de criação; badge "↻" na MovementRow
+    - Ecrã de gestão de recorrências por projeto (listar, pausar, eliminar)
+    - Notificação quando um movimento recorrente é gerado (ver [COMP-06])
+  Migração: campo recurrence_rule + recurrence_parent_id em movements
+  Dependência: [UX-01] (toast para confirmar que o movimento foi agendado)
+  Estimativa: ~1 semana (backend + frontend + Android)
+
+[COMP-02] Metas de poupança (savings goals / piggy banks)
+  Definir um objetivo de poupança com valor alvo e prazo, e acompanhar o progresso.
+  Presente em: YNAB (Targets), Firefly III (Piggy Banks), Copilot Money.
+  CASOS DE USO: fundo de emergência, férias, compra de carro, entrada de casa.
+
+  IMPLEMENTAÇÃO:
+    - Nova entidade `SavingsGoal`: id, name, targetAmount, deadline, currentAmount,
+      linkedAccountId (opcional), user_id, project_id
+    - Pode ser associado a um account da árvore (acumula automaticamente)
+      ou gerido manualmente com contribuições
+    - UI: barra de progresso visual (ex: €1.200 / €5.000 = 24%)
+    - Widget no dashboard com as metas mais próximas do prazo
+    - Notificação quando uma meta é atingida
+  Migração: nova tabela savings_goals
+  Estimativa: ~3 dias (backend + frontend)
+
+[COMP-03] Relatórios e gráficos (reports & charts)
+  Visualizações analíticas dos dados financeiros ao longo do tempo.
+  Presente em: todos os concorrentes (funcionalidade core).
+  TIPOS DE RELATÓRIO:
+
+    a) Evolução de saldo — gráfico de linha por conta ou projeto ao longo do tempo
+    b) Despesas por período — barras por semana/mês/trimestre/ano
+    c) Comparação de contas — quanto foi para cada ramo da árvore
+    d) Net worth — soma de todos os projetos (deve - haver) ao longo do tempo
+    e) Relatório de orçamento — referenceValue vs gasto real por conta (%)
+
+  IMPLEMENTAÇÃO:
+    - Endpoints de agregação na API por intervalo de datas
+    - Biblioteca de gráficos no frontend: Recharts ou Chart.js
+    - Filtros: período, projeto, profundidade da árvore, sinal (deve/haver)
+    - Export para PNG/PDF (partilha)
+  Estimativa: ~1-2 semanas (mais longo pelo design de cada tipo de relatório)
+
+[COMP-04] Partilha de projeto (shared projects / collaborative budgets)
+  Partilhar um projeto com outro utilizador para gestão conjunta.
+  Presente em: YNAB Together (até 6 pessoas), Splitwise, Toshl (shared wallets).
+  CASOS DE USO: casal, família, sócios de negócio, projeto partilhado.
+
+  FUNCIONALIDADES:
+    - Convidar utilizador por e-mail para um projeto
+    - Permissões: Viewer (leitura) / Editor (leitura+escrita) / Admin (tudo)
+    - Feed de atividade partilhado: ver quem criou/editou cada movimento
+    - Notificações de atividade de outros membros
+    - Plano: apenas planos Personal/Pro (não Free)
+
+  IMPLEMENTAÇÃO:
+    - Nova tabela `project_members`: project_id, user_id, role, invited_at, accepted_at
+    - Todos os queries de accounts/movements passam a verificar project membership em vez de só user_id
+    - Endpoint de convite por e-mail + fluxo de aceitação
+  Migração: V8__Add_Project_Members.sql (impacto significativo na segurança — requer auditoria)
+  Estimativa: ~2-3 semanas (backend + frontend + Android + segurança)
+
+[COMP-05] Reconciliação de conta (account reconciliation)
+  Confirmar que os movimentos registados correspondem ao extrato bancário.
+  Presente em: Firefly III, Actual Budget, GnuCash, MoneyMoney.
+  FLUXO:
+    1. O utilizador abre "Reconciliar conta" e indica o saldo atual no banco
+    2. A app mostra a diferença e pede que o utilizador marque os movimentos confirmados
+    3. Quando os movimentos marcados fecham o saldo, a reconciliação está completa
+    4. Movimentos reconciliados ficam protegidos contra edição acidental
+
+  IMPLEMENTAÇÃO:
+    - Campo `reconciledAt` (timestamp) em movements
+    - Badge de cadeado na MovementRow para movimentos reconciliados
+    - Fluxo de reconciliação no contexto de um account
+    - Proteção: editar um movimento reconciliado pede confirmação explícita
+  Migração: campo reconciled_at em movements
+  Estimativa: ~2-3 dias
+
+[COMP-06] Alertas e notificações
+  Sistema de alertas proativos baseado em condições financeiras.
+  Presente em: YNAB, Mint, Copilot Money, Toshl.
+  TIPOS DE ALERTA:
+    - Orçamento excedido (saldo de uma conta ultrapassa referenceValue)
+    - Orçamento próximo do limite (ex: 80% gasto)
+    - Movimento recorrente devido hoje/amanhã
+    - Meta de poupança atingida
+    - Ausência de movimento há N dias (lembrete de uso)
+
+  IMPLEMENTAÇÃO:
+    - Canal: push notification (web + Android), e-mail, ou badge no header
+    - Configuração de alertas por utilizador (quais ativar, thresholds)
+    - Backend: cron job de verificação de condições + tabela de alertas pendentes
+  Dependência: [COMP-01] (recorrência), [COMP-02] (metas), [UX-01] (toast)
+  Estimativa: ~1 semana (backend) + integrações push por plataforma
+
+[COMP-07] Import de extrato bancário (CSV / OFX / CAMT)
+  Importar movimentos a partir de ficheiros exportados pelo banco.
+  Presente em: Firefly III (com Data Importer), Actual Budget, GnuCash.
+  FORMATOS:
+    - CSV genérico com mapeamento de colunas configurável
+    - OFX/QFX (formato Quicken — standard bancário internacional)
+    - CAMT.053 (formato XML SEPA — bancos europeus)
+
+  IMPLEMENTAÇÃO:
+    - Endpoint POST /import/csv, /import/ofx, /import/camt
+    - UI de importação: upload do ficheiro → preview dos movimentos → mapeamento
+      para account da árvore → confirmar
+    - Deteção de duplicados (por data + valor + descrição aproximada)
+    - Plano: Free limitado (ex: 50 movimentos/mês), Personal/Pro ilimitado
+  Estimativa: ~1 semana (backend parsing + UI de mapeamento)
+
+[COMP-08] Tags transversais (cross-cutting tags)
+  Sistema de etiquetas livres que podem ser aplicadas a movimentos de qualquer conta.
+  Presente em: Firefly III, Toshl, Copilot Money.
+  DIFERENÇA DA ÁRVORE: a árvore é hierárquica e exclusiva; as tags são múltiplas
+  e transversais — um movimento pode ter tags #férias e #trabalho ao mesmo tempo.
+  CASOS DE USO: agrupar despesas de férias espalhadas por várias contas,
+  filtrar por projeto de trabalho, separar despesas pessoais de profissionais.
+
+  IMPLEMENTAÇÃO:
+    - Tabela `tags` + tabela many-to-many `movement_tags`
+    - Campo de tags no form de movimento (typeahead com tags existentes)
+    - Filtro por tag na árvore e nos relatórios
+    - Relatório de gastos por tag no [COMP-03]
+  Migração: V8__Add_Tags.sql
+  Estimativa: ~2-3 dias (simples mas útil)
+
+[COMP-09] Split de movimento (split transaction)
+  Dividir um único movimento em múltiplas partes, cada uma afeta uma conta diferente.
+  Presente em: YNAB, Firefly III, Actual Budget, GnuCash.
+  CASO DE USO: talão do supermercado: €80 divididos entre "Alimentação" (€60),
+  "Higiene" (€15) e "Casa" (€5).
+
+  IMPLEMENTAÇÃO:
+    - Um movimento "pai" com valor total + N movimentos "filho" com valores parciais
+    - Campo `splitParentId` em movements
+    - UI: botão "Split" no form de movimento → linhas adicionais com conta e valor
+    - A soma das partes deve igualar o total (validação em tempo real)
+    - MovementRow mostra o total com indicador de que é split; expansível
+  Migração: campo split_parent_id em movements
+  Estimativa: ~3-4 dias
+
+[COMP-10] Dashboard / painel global
+  Vista de entrada da aplicação com resumo de todos os projetos.
+  Presente em: todos os concorrentes (é a primeira coisa que se vê).
+  CONTEÚDO SUGERIDO:
+    - Saldo total de cada projeto (deve vs haver) com variação vs mês anterior
+    - Alertas ativos ([COMP-06]) em destaque
+    - Metas de poupança ([COMP-02]) com progresso
+    - Movimentos recentes (últimos 5-10, todos os projetos)
+    - Atalhos rápidos: novo movimento, novo projeto
+
+  IMPLEMENTAÇÃO:
+    - Endpoint GET /dashboard que agrega dados de todos os projetos
+    - Widget de cada projeto redireciona para a sua árvore
+    - Página inicial do router (antes de entrar num projeto específico)
+  Nota: a vista de lista de projetos actual pode evoluir para este dashboard
+  Estimativa: ~3-4 dias
+
+[COMP-11] Gestão de passivos e dívidas (liabilities / loans)
+  Registar dívidas e créditos (o que se deve e o que nos devem) com amortização.
+  Presente em: Firefly III (Liabilities), YNAB (Loan Calculator).
+  TIPOS:
+    - Crédito pessoal / hipoteca: capital + juros + prazo
+    - Dívida informal (ex: emprestei €200 ao João)
+    - Conta a receber (fatura emitida ainda não paga)
+
+  IMPLEMENTAÇÃO:
+    - Tipo de account "liability" (além de asset/category já existentes)
+    - Calculadora de amortização: taxa anual + prazo → prestação mensal
+    - Integração com movimentos recorrentes ([COMP-01]) para prestações automáticas
+    - Relatório de evolução do capital em dívida
+  Estimativa: ~1 semana
+
+[COMP-12] Budget com rollover (saldo não gasto rola para o período seguinte)
+  Saldo não utilizado num período é adicionado ao orçamento do período seguinte.
+  Presente em: YNAB (filosofia base), Actual Budget, Firefly III (growing auto-budget).
+  CONTEXTO DOUBLLY: o referenceValue é um teto; o rollover tornaria o budget
+  cumulativo — se gastar menos em Janeiro, o budget de Fevereiro é maior.
+  MODOS:
+    - Rollover positivo: saldo não gasto acumula
+    - Rollover negativo: overspend é descontado no mês seguinte
+    - Sem rollover (comportamento atual)
+  IMPLEMENTAÇÃO:
+    - Campo `budgetMode` no account: "fixed" | "rollover_positive" | "rollover_negative"
+    - Cron job mensal que calcula e ajusta referenceValue baseado no histórico
+  Dependência: [COMP-01] (recorrência) e [COMP-03] (relatórios para contextualizar)
+  Estimativa: ~3-4 dias
+
+[TMPL-01] Templates de projeto (árvores pré-construídas)
+  Ao criar um projeto, o utilizador pode escolher um template que cria
+  automaticamente a árvore de contas inicial.
+  Gestão dos templates é feita em backoffice (admin) — o utilizador final
+  apenas escolhe qual quer usar.
+
+  TEMPLATES A PREPARAR (sugestões iniciais):
+    1. "Casa — Orçamento Familiar Mensal"
+         Rendimentos
+           Salário
+           Outros rendimentos
+         Despesas Fixas
+           Renda / Crédito Habitação
+           Eletricidade
+           Água e Gás
+           Internet e Telefone
+           Seguros
+         Despesas Variáveis
+           Alimentação
+             Supermercado
+             Mercearia
+             Takeaway / Restaurantes
+           Transportes
+             Combustível
+             Transportes Públicos
+             Manutenção Automóvel
+           Saúde
+           Educação
+           Lazer e Entretenimento
+         Poupança
+           Fundo de Emergência
+           Objetivos
+
+    2. "Negócio — Pequena Empresa / Freelancer"
+         Receitas
+           Clientes
+           Outros
+         Custos Operacionais
+           Fornecedores
+           Software e Ferramentas
+           Escritório
+           Marketing
+         Recursos Humanos
+           Salários
+           Subcontratados
+         Impostos e Encargos
+           IVA
+           IRS / IRC
+           Segurança Social
+         Reservas
+
+    3. "Obra / Construção"
+         Receitas
+           Adianto
+           Prestações
+           Extras
+         Materiais
+           Estrutura
+           Acabamentos
+           Canalizações e Eletricidade
+         Mão de Obra
+           Empreiteiros
+           Subcontratados
+         Equipamentos
+           Aluguer
+           Compra
+         Licenças e Projetos
+         Imprevistos
+
+    4. "Evento (casamento, festa, viagem)"
+         Orçamento Total
+         Local e Logística
+         Alimentação e Bebida
+         Decoração
+         Fotografias e Vídeo
+         Vestuário
+         Convites e Papelaria
+         Entretenimento
+         Alojamento e Transporte
+         Imprevistos
+
+    5. "Projeto Pessoal (hobby, associação, clube)"
+         Receitas
+           Quotas / Contribuições
+           Patrocínios
+           Vendas
+         Custos
+           Materiais
+           Espaço
+           Divulgação
+         Reserva
+
+    (Mais templates podem ser adicionados no backoffice a qualquer momento)
+
+  IMPLEMENTAÇÃO BACKEND:
+    - Nova entidade `ProjectTemplate`: id, name, description, category, isActive,
+      created_at, thumbnail (emoji ou imagem)
+    - Nova entidade `ProjectTemplateNode`: id, template_id, parentNodeId,
+      name, referenceValue (null), depth, sortOrder
+    - Endpoint público: GET /project-templates — lista templates ativos
+    - Endpoint admin: POST/PUT/DELETE /admin/project-templates
+    - Endpoint: POST /projects/{id}/apply-template/{templateId}
+      → cria a árvore de accounts no projeto com base no template
+      → apenas funciona em projetos vazios (sem accounts) OU pergunta confirmação
+    - Campo opcional `templateId` no payload de criação de projeto
+      → se presente, aplica o template automaticamente após criar
+
+  IMPLEMENTAÇÃO FRONTEND:
+    - Modal "Criar Projeto" ganha um passo extra: "Começar com template?"
+    - Picker visual de templates: card com nome, descrição, preview da árvore
+    - Opção "Em branco" sempre disponível
+    - Preview expandível: mostrar a árvore que vai ser criada antes de confirmar
+    - Plano Free: acesso a todos os templates (é um benefício de onboarding,
+      não deve ser bloqueado por plano)
+
+  BACKOFFICE:
+    - Página de gestão de templates: criar, editar, reordenar, ativar/desativar
+    - Editor de árvore de template (pode reutilizar o componente AccountTreeNode
+      em modo "template edit")
+    - Campo de categoria para agrupar: Pessoal | Negócio | Evento | Outro
+
+  IMPACTO DE ONBOARDING:
+    Esta feature transforma o onboarding — um novo utilizador entra, cria um
+    projeto, escolhe "Casa — Orçamento Familiar" e tem imediatamente uma árvore
+    funcional sem saber o que é um "account". É o maior redutor de fricção
+    possível para a adoção.
+
+  Migração: V8__Add_Project_Templates.sql
+  Dependência: nenhuma (pode ser implementada independentemente)
+  Estimativa: ~1 semana (backend + frontend + criação dos 5 templates iniciais)
+
+[BETA-01] Botão de feedback para testers
+  Botão fixo visível em todas as páginas para recolher feedback durante a fase de testes.
+  Deve saber em que página o tester está e enviar essa informação automaticamente.
+
+  FORMULÁRIO:
+    - Tipo: Erro | Sugestão | Falta algo
+    - O que estavas a fazer? (texto livre)
+    - O que deveria acontecer? (texto livre)
+    - Descrição (texto livre)
+    - Página atual: capturada automaticamente (window.location.pathname)
+    - User ID: capturado automaticamente (Firebase Auth)
+
+  IMPLEMENTAÇÃO:
+    - Botão flutuante no canto inferior direito (ou no header) em todas as vistas
+    - Modal com o formulário ao clicar
+    - Backend: nova tabela `feedback` com: id, user_id, type, action, expected,
+      description, page_url, created_at
+    - Endpoint: POST /feedback (autenticado)
+    - Backoffice ou dashboard simples para o admin ver os submissions
+    - Plano: apenas durante fase beta, pode ser desativado depois
+
+  MIGRAÇÃO: V2__Add_Feedback.sql (após squash, será a próxima migração)
+  Estimativa: ~2-3 horas (backend simples + componente frontend)
+  Prioridade: ALTA — deve estar pronto antes de partilhar com testers
+
+--- NOTAS DE ARQUITETURA ---
+
+[ARCH-01] Multi-tenancy — VERIFICADO ✓
+  As tabelas estão corretamente isoladas por utilizador:
+  - accounts: tem user_id FK direta, todas as queries filtram por ela.
+  - movements: não tem user_id direta mas todas as queries joinam através
+    do account e verificam account.user_id (ex: findByIdAndAccount_User_Id).
+  - Nunca existe um findById sem userId nos repositories.
+  Não há ação a tomar — arquitetura está correta.
+
+[ARCH-02] Histórico de operações de transformação (consolidate / expand)
+  Atualmente os accounts transformados ficam marcados com bstate=consolidated
+  e são filtrados da árvore normal. Pretende-se:
+  a) Ecrã de "histórico" / auditoria que mostra estes registos ocultos
+     com opção de reverter cada operação individualmente.
+  b) Operação "flush": apaga definitivamente todos os registos consolidados
+     de um projeto (liberta espaço). Importante para tenants com quota de
+     armazenamento limitada.
+  c) Gestão de quotas de armazenamento por tenant — limite de registos ou
+     de MB por subscription plan.
+  Dependência: planos de subscription (Free / Personal / Pro) com quotas
+  diferentes. Requer UI na página de subscription e lógica no backend.
+
+[ARCH-03] Modelo de pricing sugerido
+  Baseado em análise dos concorrentes (YNAB $109/ano, Toshl $40/ano, Copilot $95/ano,
+  Monarch $100/ano, Spendee $36/ano). O Doublly não tem bank sync — isso elimina
+  o custo de infraestrutura que obriga os outros a cobrar mais. Podemos ser
+  genuinamente mais baratos com mais valor único (árvore hierárquica).
+
+  PLANOS SUGERIDOS:
+
+    Free — €0
+      - 1 projeto
+      - Árvore limitada (ex: 3 níveis de profundidade, máx 20 contas)
+      - Estados de movimento: apenas os 4 default (criado/executado/pago/cancelado)
+      - Sem histórico de estados
+      - Templates de projeto disponíveis (gancho de onboarding)
+      - Export: CSV básico
+
+    Personal — ~€3-4/mês (€29-39/ano)
+      - Projetos ilimitados
+      - Árvore ilimitada (profundidade e contas)
+      - Estados custom de movimento + histórico completo
+      - Ordenação custom de movimentos
+      - Export: CSV + PDF
+      - Acesso aos templates de projeto
+
+    Pro — ~€7-8/mês (€59-79/ano)
+      - Tudo do Personal, mais:
+      - Partilha de projetos (até N utilizadores)
+      - API access
+      - Templates custom (criar os seus próprios)
+      - Export avançado (Excel, relatórios)
+      - Suporte prioritário
+
+  VANTAGEM COMPETITIVA DE PRICING:
+    Sem bank sync = sem custos de dados bancários = pricing 30-50% abaixo dos
+    concorrentes com uma feature core (hierarquia) que eles não têm.
+
+  TRIAL:
+    Trial sem cartão de crédito (modelo YNAB) converte melhor que trial com cartão.
+    Sugestão: 30 dias de Personal grátis ao registar.
+
+  NOTA: os valores são sugestão — validar com métricas de custo de infraestrutura
+  e conversão antes de publicar. Os limites do Free (3 níveis / 20 contas) são
+  também apenas sugestão — ajustar conforme testes de onboarding.
