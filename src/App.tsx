@@ -5,10 +5,12 @@ import type { User } from 'firebase/auth'
 import { auth } from './lib/firebase'
 import { useAuthStore } from './stores/authStore'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
+import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/auth/LoginPage'
 import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { NewProjectPage } from './pages/projects/NewProjectPage'
 import { ProjectPage } from './pages/projects/ProjectPage'
+import { BetaTestersPage } from './pages/beta/BetaTestersPage'
 import { userService } from './services/userService'
 import { FeedbackButton } from './components/ui/FeedbackButton'
 
@@ -55,9 +57,14 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={!loading && user ? <Navigate to="/" replace /> : <LoginPage />} />
-        <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-        <Route path="/projects/new" element={<ProtectedRoute><NewProjectPage /></ProtectedRoute>} />
-        <Route path="/projects/:id" element={<ProtectedRoute><ProjectPage /></ProtectedRoute>} />
+
+        <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+          <Route index element={<DashboardPage />} />
+          <Route path="projects/new" element={<NewProjectPage />} />
+          <Route path="projects/:id" element={<ProjectPage />} />
+          <Route path="beta-testers" element={<BetaTestersPage />} />
+        </Route>
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <FeedbackButton />

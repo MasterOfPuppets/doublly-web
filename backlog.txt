@@ -2,6 +2,40 @@
 BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
 ========================================
 
+--- ÍNDICE BETA-TESTERS (MOCK) ---
+
+[IDX-01] Estabilidade e UX atual
+  - [UX-01] Sistema de mensagens de erro / notificações
+  - [TD-02] Erro genérico nos modais
+  - [TD-03] fetchProjects não invalidado em todos os fluxos
+
+[IDX-02] Conta, login e onboarding
+  - [TD-05] Falta fluxo de registo email/password
+
+[IDX-03] Orçamento e visualização financeira
+  - [SET-01] Modo da coluna final por projeto (remaining/deviation)
+  - [TREE-01] Resumo #movimentos/contas quando ramo está colapsado
+
+[IDX-04] Produtividade de movimentos
+  - [MOV-04] Ordenação de movimentos por conta
+  - [MOV-02] Expense photo → movement (v2)
+  - [MOV-03] Estado do movimento com histórico
+
+[IDX-05] Evolução funcional (roadmap)
+  - [COMP-01] Movimentos recorrentes
+  - [COMP-02] Metas de poupança
+  - [COMP-03] Relatórios e gráficos
+  - [COMP-04] Partilha de projeto
+  - [COMP-05] Reconciliação de conta
+  - [COMP-06] Alertas e notificações
+
+[IDX-06] Templates de projeto
+  - [TMPL-01] Sistema de templates (templating system)
+
+
+
+Nota: esta secção é um sumário para alimentar a página "Beta-testers" (ou futura "Help").
+
 --- BACKLOG ---
 
 [TREE-01] Collapsed node summary
@@ -11,25 +45,6 @@ BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
   para consistência com a app Android.
   Dependência: alterar AccountTreeDto na API + Android.
 
-[TREE-02] Edit account (rename + budget)
-  Modal inline no AccountTreeNode para editar nome e referenceValue.
-
-[TREE-03] Delete account
-  Confirmação inline + chamada DELETE /accounts/{id} com refresh da tree.
-
-[TREE-04] Edit / delete movement inline
-  Cada linha de movimento na tree deve ter opções de editar e apagar.
-
-[TREE-05] Move account (drag or modal)
-  Mover um ramo para outro pai via modal de seleção ou drag-and-drop.
-
-[TREE-06] Drop movement onto another account's movement list area
-  Atualmente os movimentos podem ser arrastados entre accounts, mas o drop
-  é feito no header do account. Melhorar para permitir largar diretamente
-  na área de movimentos do account destino.
-  Requer: useDroppable em cada lista de movimentos, distinguir no handleDragEnd
-  se o drop foi numa lista vs. header, adicionar feedback visual (highlight).
-  Estimativa: ~1h. Não urgente.
 
 [MOV-02] Expense photo → movement (v2)
   Tirar foto a um talão/fatura e criar o movimento automaticamente.
@@ -48,6 +63,24 @@ BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
   Requer: componente de toast global, mapeamento dos códigos de erro da API
   para mensagens amigáveis, e identificação dos erros de plano (ex: campo
   "upgradeRequired: true" na resposta de erro da API).
+
+[SET-01] Modo da coluna de orçamento por projeto
+  Permitir escolher como calcular a última coluna financeira em cada projeto.
+
+  MODOS:
+    remaining — orçamento - gasto (positivo = ainda pode gastar)
+    deviation — gasto - orçamento (positivo = acima do orçamento)
+
+  REGRAS:
+    - preferência guardada por projeto
+    - fallback para preferência global do utilizador
+    - default inicial: remaining
+
+  IMPLEMENTAÇÃO:
+    - Settings UI em projeto e em perfil
+    - persistência no backend (project setting + user default)
+    - frontend lê setting e aplica no cálculo da coluna
+    - manter formatação/cores consistentes em todos os níveis da árvore
 
 // TEMPORÁRIO: regra "Free plan não pode mover ramos entre projetos" está
 // comentada no AccountService.java (ver moveAccount) para permitir testes.
@@ -170,6 +203,20 @@ BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
   Correção: adicionar fluxo de criação de conta com
   createUserWithEmailAndPassword(...) e, no sucesso, manter bootstrap para
   sincronizar utilizador na BD da app.
+
+[TD-06] Anonimizar strings sensíveis (não em clear text)
+  Objetivo: evitar exposição de strings sensíveis em texto legível.
+  Primeira fase: encriptação ponto a ponto das strings críticas.
+  Segunda fase: definir o modelo final (gestão de chaves, rotação, escopo e auditoria).
+  Nota: item interno de segurança; não incluir no índice/página Beta.
+
+[TD-07] Versionamento da API e frontend + visibilidade na app
+  Definir estratégia de versionamento entre backend e frontend para evitar
+  incompatibilidades entre releases.
+  Objetivo: ter versão explícita de API e versão do frontend, com validação de
+  compatibilidade mínima.
+  Expor versão atual em zona visível da aplicação (ex: footer/help) para suporte.
+  Incluir plano de rollback e política de depreciação de versões.
 
 
 --- FUNCIONALIDADES IDENTIFICADAS NA CONCORRÊNCIA ---

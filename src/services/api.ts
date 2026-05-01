@@ -28,13 +28,29 @@ async function request<T>(
   console.log(`[API] ${method} ${url} → ${res.status}`)
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: res.statusText }))
+    const rawError = await res.text()
+    const error = (() => {
+      if (!rawError) return { message: res.statusText }
+      try {
+        return JSON.parse(rawError)
+      } catch {
+        return { message: rawError }
+      }
+    })()
     console.error(`[API] Error:`, error)
     throw new Error(error.message ?? 'Request failed')
   }
 
   if (res.status === 204) return undefined as T
-  return res.json()
+
+  const rawResponse = await res.text()
+  if (!rawResponse) return undefined as T
+
+  try {
+    return JSON.parse(rawResponse) as T
+  } catch {
+    return rawResponse as T
+  }
 }
 
 export const api = {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -13,6 +13,7 @@ import {
 import { useAccountStore } from '../../stores/accountStore'
 import { accountService, movementService } from '../../services/accountService'
 import { AccountTreeNode } from '../../components/ui/AccountTreeNode'
+import { formatCurrencyEUR } from '../../lib/currency'
 import type { AccountTreeDto, MovementDto } from '../../types'
 
 function findNode(tree: AccountTreeDto, id: string): AccountTreeDto | null {
@@ -37,8 +38,7 @@ function findMovement(tree: AccountTreeDto, id: string): MovementDto | null {
 
 export function ProjectPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const { selectedTree, loading, error, fetchTree, clearTree } = useAccountStore()
+  const { selectedTree, treeLoading, error, fetchTree, clearTree } = useAccountStore()
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
@@ -99,38 +99,32 @@ export function ProjectPage() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="min-h-screen bg-gray-50">
-        <header className="border-b border-gray-200 bg-white px-8 py-4">
-          <div className="mx-auto flex max-w-5xl items-center justify-between">
-            <span className="text-lg font-bold text-indigo-600">Doublly</span>
-            <button onClick={() => navigate('/')} className="text-sm text-gray-500 hover:text-gray-700">
-              ← Projects
-            </button>
+      <div>
+        {treeLoading && !selectedTree && (
+          <div className="flex justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
           </div>
-        </header>
+        )}
 
-        <main className="mx-auto max-w-5xl px-8 py-10">
-          {loading && (
-            <div className="flex justify-center py-16">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-600">{error}</div>
+        )}
+
+        {selectedTree && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-2xl font-bold text-gray-900">{selectedTree.name}</h1>
             </div>
-          )}
-
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-600">{error}</div>
-          )}
-
-          {!loading && selectedTree && (
-            <>
-              <div className="mb-8">
-                <h1 className="text-2xl font-bold text-gray-900">{selectedTree.name}</h1>
-              </div>
+            <div className={`relative transition-opacity duration-200 ${treeLoading ? 'opacity-70' : 'opacity-100'}`}>
+              {treeLoading && (
+                <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-white/40" />
+              )}
               <div className="space-y-2">
                 <AccountTreeNode node={selectedTree} projectId={id!} depth={0} />
               </div>
-            </>
-          )}
-        </main>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Drag overlay — ghost of dragged item */}
@@ -145,7 +139,7 @@ export function ProjectPage() {
           <div className="flex items-center gap-4 rounded-lg border border-indigo-300 bg-white px-4 py-2.5 text-sm opacity-90 shadow-xl">
             <span className="text-gray-300">⠿</span>
             <span className="text-gray-600">{activeMov.description ?? '—'}</span>
-            <span className="font-semibold text-gray-800">{activeMov.amount.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}</span>
+            <span className="font-semibold text-gray-800">{formatCurrencyEUR(activeMov.amount)}</span>
           </div>
         )}
       </DragOverlay>

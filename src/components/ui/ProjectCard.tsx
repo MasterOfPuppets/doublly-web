@@ -1,4 +1,5 @@
 import type { AccountDto } from '../../types'
+import { formatCurrencyEUR } from '../../lib/currency'
 
 interface Props {
   project: AccountDto
@@ -20,10 +21,7 @@ export function ProjectCard({ project, onClick }: Props) {
             <p className="mt-1 text-sm text-gray-500">
               Budget:{' '}
               <span className="font-medium text-gray-700">
-                {project.referenceValue.toLocaleString('pt-PT', {
-                  style: 'currency',
-                  currency: 'EUR',
-                })}
+                {formatCurrencyEUR(project.referenceValue)}
               </span>
             </p>
           )}

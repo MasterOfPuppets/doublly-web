@@ -2,6 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import type { AccountTreeDto, MovementDto } from '../../types'
 import { accountService, movementService } from '../../services/accountService'
 import { useAccountStore } from '../../stores/accountStore'
+import { computeBudgetDelta, type BudgetDeltaMode } from '../../lib/accountState'
+import { formatCurrencyEUR } from '../../lib/currency'
+import { useAppDialog } from './AppDialog'
 import { useDroppable, useDndContext, useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 
@@ -138,7 +141,7 @@ function MovementRow({ mov, projectId }: { mov: MovementDto; projectId: string }
           className="cursor-text whitespace-nowrap font-semibold text-gray-800 hover:text-indigo-700"
           onClick={() => setActiveField('amount')}
         >
-          {(parseFloat(editAmount) || 0).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}
+          {formatCurrencyEUR(parseFloat(editAmount) || 0)}
         </span>
       )}
 
@@ -214,7 +217,9 @@ interface Props {
 }
 
 export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandparentId, siblingIds }: Props) {
+  const budgetDeltaMode: BudgetDeltaMode = 'remaining'
   const { fetchTree, toggleCollapsed, isCollapsed } = useAccountStore()
+  const { confirm } = useAppDialog()
   const { active } = useDndContext()
   const isDragActive = active !== null
   const isBeingDragged = active?.id === node.id
@@ -259,8 +264,10 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
   const [editNameVal, setEditNameVal] = useState(node.name)
   const [editingBudget, setEditingBudget] = useState(false)
   const [editBudgetVal, setEditBudgetVal] = useState(String(node.referenceValue))
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const deleteRef = useRef<HTMLDivElement>(null)
+
+  const budget = node.referenceValue ?? 0
+  const totalSpent = node.totalAmount ?? 0
+  const budgetDelta = computeBudgetDelta(budget, totalSpent, budgetDeltaMode)
 
   const hasChildren = node.subAccounts.length > 0 || node.movements.length > 0
 
@@ -268,9 +275,6 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false)
-      }
-      if (deleteRef.current && !deleteRef.current.contains(e.target as Node)) {
-        setDeleteConfirm(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -355,6 +359,18 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
     setAddMovOpen(true)
   }
 
+  function closeAddMov() {
+    setAddMovOpen(false)
+    setMovError(null)
+  }
+
+  function resetMovementForm() {
+    setMovDate(new Date().toISOString().slice(0, 10))
+    setMovDescription('')
+    setMovAmount('')
+    setMovError(null)
+  }
+
   async function saveMovement(): Promise<boolean> {
     if (!movAmount) return false
     setMovSubmitting(true)
@@ -376,18 +392,50 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
     }
   }
 
+  async function submitMovementAndClose() {
+    if (await saveMovement()) closeAddMov()
+  }
+
+  async function submitMovementAndContinue() {
+    if (await saveMovement()) {
+      resetMovementForm()
+      setTimeout(() => movDescRef.current?.focus(), 50)
+    }
+  }
+
   async function handleAddMov(e: React.SyntheticEvent) {
     e.preventDefault()
-    if (await saveMovement()) setAddMovOpen(false)
+    await submitMovementAndClose()
   }
 
   async function handleAddMovAndContinue(e: React.SyntheticEvent) {
     e.preventDefault()
-    if (await saveMovement()) {
-      setMovDescription('')
-      setMovAmount('')
-      setTimeout(() => movDescRef.current?.focus(), 50)
-    }
+    await submitMovementAndContinue()
+  }
+
+  function handleAddMovModalKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    closeAddMov()
+  }
+
+  function handleDateFieldKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    movDescRef.current?.focus()
+  }
+
+  function handleDescriptionFieldKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    movAmountRef.current?.focus()
+  }
+
+  function handleAmountFieldKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    if (movSubmitting || !movAmount) return
+    void submitMovementAndContinue()
   }
 
   async function handleConsolidate() {
@@ -426,7 +474,13 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
   }
 
   async function handleDeleteAcc() {
-    setDeleteConfirm(false)
+    setMenuOpen(false)
+    const ok = await confirm('Delete this account and all nested items?', {
+      title: 'Delete account',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return
     try {
       await accountService.deleteAccount(node.id)
       await fetchTree(projectId)
@@ -446,7 +500,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
       {/* Outer wrapper — carries the transform and indentation */}
       <div
         style={depth > 0 && transform ? { transform: CSS.Translate.toString(transform) } : undefined}
-        className={`${depth > 0 ? 'ml-6 border-l border-gray-100 pl-4' : ''} ${isDragging ? 'opacity-30' : ''}`}
+        className={`${depth > 0 ? 'border-l border-gray-100 pl-6' : ''} ${isDragging ? 'opacity-30' : ''}`}
       >
         {/* Node row — sortable + droppable ref here so collision rect = card only */}
         <div
@@ -471,7 +525,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
           {/* Expand/collapse toggle */}
           <button
             onClick={() => toggleCollapsed(node.id)}
-            className="flex h-6 w-6 items-center justify-center text-base text-gray-400 hover:text-gray-700"
+            className="flex h-8 w-8 items-center justify-center text-xl text-gray-400 hover:text-gray-700"
           >
             {hasChildren ? (expanded ? '▾' : '▸') : ''}
           </button>
@@ -499,8 +553,8 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
           )}
 
           {/* Financials */}
-          <div className="hidden gap-6 text-sm sm:flex">
-            <span className="text-gray-400">
+          <div className="hidden w-[560px] grid-cols-[190px_170px_170px] items-center gap-4 text-sm sm:grid">
+            <span className="tabular-nums text-gray-400">
               Budget:{' '}
               {editingBudget ? (
                 <input
@@ -522,97 +576,92 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
                   className="cursor-text text-gray-600"
                   onClick={() => { setMenuOpen(false); setEditingBudget(true) }}
                 >
-                  {(parseFloat(editBudgetVal) || 0).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}
+                  {formatCurrencyEUR(parseFloat(editBudgetVal) || 0)}
                 </span>
               )}
             </span>
-            <span className="text-gray-400">
-              Total: <span className="font-semibold text-gray-800">{node.totalAmount.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}</span>
+            <span className="tabular-nums text-gray-400">
+              Total: <span className="font-semibold text-gray-800">{formatCurrencyEUR(totalSpent)}</span>
             </span>
-            <span className={`font-semibold ${node.deviation >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-              {node.deviation >= 0 ? '+' : ''}{node.deviation.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}
+            <span className={`justify-self-end tabular-nums font-semibold ${budgetDelta >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {budgetDelta > 0 ? '+' : ''}{formatCurrencyEUR(budgetDelta)}
             </span>
           </div>
 
-          {/* Delete — inline popover (non-root only) */}
-          {depth > 0 && (
-            <div className="relative" ref={deleteRef}>
+          <div className="flex w-28 items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={openAddMov}
+              className="rounded-md px-2 py-1 text-sm font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+              title="Add movement"
+            >
+              +
+            </button>
+
+            {/* Context menu */}
+            <div className="relative" ref={menuRef}>
               <button
-                onClick={() => { setMenuOpen(false); setDeleteConfirm((v) => !v) }}
-                className="rounded p-1 text-gray-300 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 hover:text-red-400"
+                onClick={() => setMenuOpen((v) => !v)}
+                className="rounded-md px-2 py-1 text-base font-bold leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
+                ···
               </button>
-              {deleteConfirm && (
-                <div className="absolute right-0 top-8 z-20 flex items-center gap-2 whitespace-nowrap rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-lg">
-                  <span className="text-xs text-gray-600">Delete?</span>
-                  <button onClick={handleDeleteAcc} className="rounded bg-red-500 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-600">Yes</button>
-                  <button onClick={() => setDeleteConfirm(false)} className="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100">No</button>
+              {menuOpen && (
+                <div className="absolute right-0 top-8 z-10 w-56 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                  <button
+                    onClick={openAddSub}
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    + Add sub-account
+                  </button>
+                  <hr className="my-1 border-gray-100" />
+                  {siblingIds && siblingIds.indexOf(node.id) > 0 && (
+                    <button
+                      onClick={handleMoveUp}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      ↑ Move up
+                    </button>
+                  )}
+                  {siblingIds && siblingIds.indexOf(node.id) < siblingIds.length - 1 && (
+                    <button
+                      onClick={handleMoveDown}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      ↓ Move down
+                    </button>
+                  )}
+                  {grandparentId !== undefined && (
+                    <>
+                      <hr className="my-1 border-gray-100" />
+                      <button
+                        onClick={handlePromote}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        ↑ Promote
+                      </button>
+                      <button
+                        onClick={handleConsolidate}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        ↦ Consolidate to movement
+                      </button>
+                    </>
+                  )}
+                  {depth > 0 && (
+                    <>
+                      <hr className="my-1 border-gray-100" />
+                      <button
+                        onClick={handleDeleteAcc}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                      >
+                        Delete account
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
-          )}
-
-          {/* Context menu */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="rounded-md px-2 py-1 text-base font-bold leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-            >
-              ···
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-8 z-10 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
-                <button
-                  onClick={openAddSub}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  + Add sub-account
-                </button>
-                <button
-                  onClick={openAddMov}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  + Add movement
-                </button>
-                <hr className="my-1 border-gray-100" />
-                {siblingIds && siblingIds.indexOf(node.id) > 0 && (
-                  <button
-                    onClick={handleMoveUp}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    ↑ Move up
-                  </button>
-                )}
-                {siblingIds && siblingIds.indexOf(node.id) < siblingIds.length - 1 && (
-                  <button
-                    onClick={handleMoveDown}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    ↓ Move down
-                  </button>
-                )}
-                {grandparentId !== undefined && (
-                  <>
-                    <hr className="my-1 border-gray-100" />
-                    <button
-                      onClick={handlePromote}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      ↑ Promote
-                    </button>
-                    <button
-                      onClick={handleConsolidate}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      ↦ Consolidate to movement
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
@@ -641,19 +690,24 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
       {addMovOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-          onClick={() => setAddMovOpen(false)}
+          onClick={closeAddMov}
         >
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-1 text-base font-semibold text-gray-900">Add movement</h2>
             <p className="mb-5 text-sm text-gray-500">To <span className="font-medium text-gray-700">{node.name}</span></p>
 
-            <form onSubmit={handleAddMovAndContinue} className="space-y-4">
+            <form
+              onSubmit={handleAddMovAndContinue}
+              onKeyDown={handleAddMovModalKeyDown}
+              className="space-y-4"
+            >
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600">Date *</label>
                 <input
                   type="date"
                   value={movDate}
                   onChange={(e) => setMovDate(e.target.value)}
+                  onKeyDown={handleDateFieldKeyDown}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
@@ -664,7 +718,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
                   autoFocus
                   value={movDescription}
                   onChange={(e) => setMovDescription(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); movAmountRef.current?.focus() } }}
+                  onKeyDown={handleDescriptionFieldKeyDown}
                   placeholder="e.g. January invoice"
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
@@ -677,6 +731,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
                   step="0.01"
                   value={movAmount}
                   onChange={(e) => setMovAmount(e.target.value)}
+                  onKeyDown={handleAmountFieldKeyDown}
                   placeholder="0.00"
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
@@ -689,10 +744,10 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setAddMovOpen(false)}
+                  onClick={closeAddMov}
                   className="rounded-lg px-4 py-2 text-sm text-gray-500 hover:bg-gray-100"
                 >
-                  Cancel
+                  Escape
                 </button>
                 <button
                   type="submit"
@@ -705,7 +760,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
                   type="button"
                   onClick={handleAddMov}
                   disabled={movSubmitting || !movAmount}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  className="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
                 >
                   {movSubmitting ? 'Saving…' : 'Save & close'}
                 </button>

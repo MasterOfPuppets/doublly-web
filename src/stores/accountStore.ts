@@ -6,6 +6,8 @@ import { collectCollapsedIds } from '../lib/accountState'
 interface AccountState {
   projects: AccountDto[]
   selectedTree: AccountTreeDto | null
+  projectsLoading: boolean
+  treeLoading: boolean
   loading: boolean
   error: string | null
   collapsedIds: Set<string>
@@ -20,33 +22,35 @@ interface AccountState {
 export const useAccountStore = create<AccountState>()((set, get) => ({
   projects: [],
   selectedTree: null,
+  projectsLoading: false,
+  treeLoading: false,
   loading: false,
   error: null,
   collapsedIds: new Set(),
 
   fetchProjects: async () => {
-    set({ loading: true, error: null })
+    set({ projectsLoading: true, loading: true, error: null })
     try {
       const projects = await accountService.getProjects()
-      set({ projects, loading: false })
+      set({ projects, projectsLoading: false, loading: get().treeLoading })
     } catch (e) {
-      set({ error: (e as Error).message, loading: false })
+      set({ error: (e as Error).message, projectsLoading: false, loading: get().treeLoading })
     }
   },
 
   fetchTree: async (id: string) => {
-    set({ loading: true, error: null })
+    set({ treeLoading: true, loading: true, error: null })
     try {
       const tree = await accountService.getAccountTree(id)
       // Initialize collapsed state from each node's persisted state string
       const collapsedIds = collectCollapsedIds(tree)
-      set({ selectedTree: tree, loading: false, collapsedIds })
+      set({ selectedTree: tree, treeLoading: false, loading: get().projectsLoading, collapsedIds })
     } catch (e) {
-      set({ error: (e as Error).message, loading: false })
+      set({ error: (e as Error).message, treeLoading: false, loading: get().projectsLoading })
     }
   },
 
-  clearTree: () => set({ selectedTree: null, collapsedIds: new Set() }),
+  clearTree: () => set({ selectedTree: null, collapsedIds: new Set(), treeLoading: false, loading: get().projectsLoading }),
 
   toggleCollapsed: (id: string) => {
     const next = new Set(get().collapsedIds)
