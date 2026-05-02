@@ -59,6 +59,7 @@ export function BetaTestersPage() {
           <li>Partilha de projeto.</li>
           <li>Reconciliação de conta.</li>
           <li>Alertas e notificações.</li>
+          <li>App Android nativa.</li>
         </ul>
 
         <h4 className="mt-4 text-sm font-semibold text-gray-900">Templates de projeto</h4>

@@ -61,6 +61,7 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
           <Route index element={<DashboardPage />} />
           <Route path="projects/new" element={<NewProjectPage />} />
+          <Route path="projects/:id/edit" element={<NewProjectPage />} />
           <Route path="projects/:id" element={<ProjectPage />} />
           <Route path="beta-testers" element={<BetaTestersPage />} />
         </Route>

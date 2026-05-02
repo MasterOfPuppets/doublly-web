@@ -216,6 +216,11 @@ interface Props {
   siblingIds?: string[]
 }
 
+function hasMovementsInSubtree(account: AccountTreeDto): boolean {
+  if (account.movements.length > 0) return true
+  return account.subAccounts.some(hasMovementsInSubtree)
+}
+
 export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandparentId, siblingIds }: Props) {
   const budgetDeltaMode: BudgetDeltaMode = 'remaining'
   const { fetchTree, toggleCollapsed, isCollapsed } = useAccountStore()
@@ -270,6 +275,7 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
   const budgetDelta = computeBudgetDelta(budget, totalSpent, budgetDeltaMode)
 
   const hasChildren = node.subAccounts.length > 0 || node.movements.length > 0
+  const hasBudgetImpact = hasMovementsInSubtree(node)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -475,12 +481,14 @@ export function AccountTreeNode({ node, projectId, depth = 0, parentId, grandpar
 
   async function handleDeleteAcc() {
     setMenuOpen(false)
-    const ok = await confirm('Delete this account and all nested items?', {
-      title: 'Delete account',
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-    })
-    if (!ok) return
+    if (hasBudgetImpact) {
+      const ok = await confirm('Delete this account and all nested items?', {
+        title: 'Delete account',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      })
+      if (!ok) return
+    }
     try {
       await accountService.deleteAccount(node.id)
       await fetchTree(projectId)

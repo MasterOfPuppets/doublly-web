@@ -28,6 +28,9 @@ BACKLOG & DÍVIDAS TÉCNICAS — doublly-web
   - [COMP-04] Partilha de projeto
   - [COMP-05] Reconciliação de conta
   - [COMP-06] Alertas e notificações
+  - [COMP-14] Exportação de projeto
+  - [COMP-15] Arquivar e apagar projetos
+  - [COMP-13] App Android nativa
 
 [IDX-06] Templates de projeto
   - [TMPL-01] Sistema de templates (templating system)
@@ -419,6 +422,28 @@ Nota: esta secção é um sumário para alimentar a página "Beta-testers" (ou f
     - Cron job mensal que calcula e ajusta referenceValue baseado no histórico
   Dependência: [COMP-01] (recorrência) e [COMP-03] (relatórios para contextualizar)
   Estimativa: ~3-4 dias
+
+[COMP-13] App Android nativa
+  Disponibilizar app Android com experiência otimizada para uso diário no telemóvel.
+  Objetivo: permitir gestão rápida de movimentos, contas e orçamento fora do desktop.
+
+  FUNCIONALIDADES BASE (MVP Android):
+    - Login e bootstrap de utilizador
+    - Lista de projetos
+    - Árvore de contas com expansão/colapso
+    - Criar, editar e apagar movimentos
+    - Feedback in-app
+
+  EVOLUÇÃO:
+    - Sincronização completa com estados e preferências
+    - Upload de foto de talão/fatura (dependência de [MOV-02])
+    - Notificações (dependência de [COMP-06])
+
+  IMPLEMENTAÇÃO:
+    - Definir stack (Kotlin + Jetpack Compose)
+    - Reutilizar contratos da API atual com versionamento explícito
+    - Pipeline de build/distribuição beta (Internal testing)
+  Estimativa: ~1-2 semanas para MVP inicial
 
 [TMPL-01] Templates de projeto (árvores pré-construídas)
   Ao criar um projeto, o utilizador pode escolher um template que cria
